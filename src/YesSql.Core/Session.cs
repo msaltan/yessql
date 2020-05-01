@@ -19,7 +19,7 @@ namespace YesSql
     {
         private DbTransaction _transaction;
 
-        private readonly IdentityMap _identityMap = new IdentityMap();
+        private readonly IdentityKeyMap _identityMap = new IdentityKeyMap();
         internal readonly List<IIndexCommand> _commands = new List<IIndexCommand>();
         private readonly Dictionary<IndexDescriptor, List<MapState>> _maps = new Dictionary<IndexDescriptor, List<MapState>>();
         private readonly HashSet<object> _saved = new HashSet<object>();
@@ -92,6 +92,8 @@ namespace YesSql
                 return;
             }
 
+            var collection = CollectionHelper.Current.GetSafeName();
+
             // Does it have a valid identifier?
             var accessor = _store.GetIdAccessor(entity.GetType(), "Id");
             if (accessor != null)
@@ -100,7 +102,7 @@ namespace YesSql
 
                 if (id > 0)
                 {
-                    _identityMap.AddEntity(id, entity);
+                    _identityMap.AddEntity(_identityMap.GetIdKey(id,collection), entity);
                     _updated.Add(entity);
                     
                     // If this entity needs to be checked for concurrency, track its version
@@ -114,9 +116,9 @@ namespace YesSql
             }
 
             // it's a new entity
-            var collection = CollectionHelper.Current.GetSafeName();
+            //var collection = CollectionHelper.Current.GetSafeName();
             id = _store.GetNextId(collection);
-            _identityMap.AddEntity(id, entity);
+            _identityMap.AddEntity(_identityMap.GetIdKey(id, collection), entity);
 
             // Then assign a new identifier if it has one
             if (accessor != null)
@@ -136,7 +138,7 @@ namespace YesSql
             {
                 return false;
             }
-
+            var collection = CollectionHelper.Current.GetSafeName();
             var doc = new Document
             {
                 Type = Store.TypeNames[entity.GetType()],
@@ -146,7 +148,7 @@ namespace YesSql
 
             if (id != 0)
             {
-                _identityMap.AddEntity(id, entity);
+                _identityMap.AddEntity(_identityMap.GetIdKey(id, collection), entity);
                 _updated.Add(entity);
 
                 doc.Id = id;
@@ -164,7 +166,7 @@ namespace YesSql
 
                     if (id > 0)
                     {
-                        _identityMap.AddEntity(id, entity);
+                        _identityMap.AddEntity(_identityMap.GetIdKey(id, collection), entity);
                         _updated.Add(entity);
 
                         doc.Id = id;
@@ -187,14 +189,14 @@ namespace YesSql
         public void Detach(object entity)
         {
             CheckDisposed();
-
+            var collection = CollectionHelper.Current.GetSafeName();
             _saved.Remove(entity);
             _updated.Remove(entity);
             _deleted.Remove(entity);
 
             if (_identityMap.TryGetDocumentId(entity, out var id))
             {
-                _identityMap.Remove(id, entity);
+                _identityMap.Remove(_identityMap.GetIdKey(id, collection), entity);
             }
         }
 
@@ -263,8 +265,8 @@ namespace YesSql
             {
                 throw new InvalidOperationException("The object to update was not found in identity map.");
             }
-
-            if (!_identityMap.TryGetDocument(id, out var oldDoc))
+            var collection = CollectionHelper.Current.GetSafeName();
+            if (!_identityMap.TryGetDocument(_identityMap.GetIdKey(id,collection), out var oldDoc))
             {
                 oldDoc = await GetDocumentByIdAsync(id);
 
@@ -367,11 +369,11 @@ namespace YesSql
                 }
 
                 var doc = await GetDocumentByIdAsync(id);
-
+                var collection = CollectionHelper.Current.GetSafeName();
                 if (doc != null)
                 {
                     // Untrack the deleted object
-                    _identityMap.Remove(id, obj);
+                    _identityMap.Remove(_identityMap.GetIdKey(id, collection), obj);
 
                     // Update impacted indexes
                     await MapDeleted(doc, obj);
@@ -437,7 +439,7 @@ namespace YesSql
 
             var accessor = _store.GetIdAccessor(typeof(T), "Id");
             var typeName = Store.TypeNames[typeof(T)];
-
+            var collection = CollectionHelper.Current.GetSafeName();
             // Are all the objects already in cache?
             foreach (var d in documents)
             {
@@ -446,7 +448,7 @@ namespace YesSql
                     continue;
                 }
 
-                if (_identityMap.TryGetEntityById(d.Id, out var entity))
+                if (_identityMap.TryGetEntityById(_identityMap.GetIdKey(d.Id, collection), out var entity))
                 {
                     result.Add((T)entity);
                 }
@@ -473,7 +475,7 @@ namespace YesSql
                     }
 
                     // track the loaded object
-                    _identityMap.AddEntity(d.Id, item);
+                    _identityMap.AddEntity(_identityMap.GetIdKey(d.Id, collection), item);
                     _identityMap.AddDocument(d);
 
                     result.Add(item);
